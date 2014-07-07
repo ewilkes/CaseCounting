@@ -1,5 +1,5 @@
 DECLARE @Start DATE = '07-01-2013'
-DECLARE @End DATE = '12-31-2013'
+DECLARE @End DATE = '7/31/2013'--'12-31-2013'
 --DECLARE @Start DATE = '04-01-2014'
 --DECLARE @End DATE = '04-30-2014'
 DECLARE @OfficeCode TABLE
@@ -42,33 +42,62 @@ INSERT INTO @OfficeCode VALUES ('BOYCT')	--Boyd County Office
 --INSERT INTO @OfficeCode VALUES ('STANT')	--Stanton Office
 ;
 
-WITH
-		RuleOne_CTE AS
-(	SELECT
-			RuleOneDt = (
-				CASE
-				WHEN COUNT(judge.InvolveTypeCode) = 1 THEN c.CaseReceivedDt
-				WHEN COUNT(judge.InvolveTypeCode) > 1 THEN (
-					SELECT TOP 1 
-							judge1.CaseInvPersActiveDt
-					FROM 
-							jw50_CaseInvPers AS judge1 
-							JOIN jw50_CaseAgency AS ca 
-								ON ca.CaseID = c.CaseID
-								AND ca.CaseAgencyLead = 1
-								AND ca.CaseAgencyMasterCode = 2
-								AND ca.CaseAgencyNumber IS NOT NULL
-					WHERE 
-						judge1.CaseAgencyID = ca.CaseAgencyID)
-				END)
-	,		c.CaseID
+WITH Case_CTE AS
+(
+	SELECT
+		CaseID
+		,CaseTypeCode
+		,CaseTypeDesc
+		,CaseStatusCode
+		,CaseReceivedDt
+		,CaseTitle
+		,AgencyAddByCode
+		,AgencyAddByDesc
 	FROM
-			jw50_Case AS c 
-			JOIN jw50_CaseInvPers AS judge 
-				ON c.CaseID = judge.CaseID
-				AND judge.InvolveTypeMasterCode = 14
+		jw50_Case
+)
+,RuleOne_CTE AS
+(
+	SELECT
+		RuleOneDt = (
+						CASE
+							WHEN COUNT(judge.InvolveTypeCode) = 1 THEN c.CaseReceivedDt
+							WHEN COUNT(judge.InvolveTypeCode) > 1 THEN (
+																			SELECT TOP 1 
+																				judge1.CaseInvPersActiveDt
+																			FROM 
+																				jw50_CaseInvPers AS judge1 
+																					INNER JOIN
+																				jw50_CaseAgency AS ca 
+																					ON ca.CaseID = c.CaseID
+																					AND ca.CaseAgencyLead = 1
+																					AND ca.CaseAgencyMasterCode = 2
+																					--AND ca.CaseAgencyNumber IS NOT NULL
+																			WHERE
+																				judge1.CaseAgencyID = ca.CaseAgencyID
+																		)
+						END
+					)
+		,c.CaseID
+	FROM
+		Case_CTE AS c
+			CROSS APPLY--Changing to a CROSS APPLY might negate the need for a GROUP BY and potentially speed things up; needs testing since I don't have access to your server
+		(
+			SELECT
+				CaseID
+				,InvolveTypeCode
+			FROM
+				jw50_CaseInvPers
+			WHERE
+				CaseID = c.CaseID
+				AND InvolveTypeMasterCode = 14
+		) AS judge
+	WHERE
+		c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT')
 	GROUP BY
-			 judge.CaseID, c.CaseReceivedDt, c.CaseID
+		judge.CaseID
+		,c.CaseReceivedDt
+		,c.CaseID
 )
 ,		OfficeList_CTE AS
 (
@@ -109,7 +138,7 @@ WITH
 
 	FROM
 			jw50_CaseInvPers AS aty 
-			JOIN jw50_Case AS case1 
+			JOIN Case_CTE AS case1 
 				ON case1.CaseID = aty.CaseID
 				AND case1.CaseStatusCode NOT IN ('CS10','CS20')
 	WHERE
@@ -139,7 +168,7 @@ WITH
 
 	FROM
 			jw50_CaseInvPers AS aty 
-			JOIN jw50_Case AS case1 
+			JOIN Case_CTE AS case1 
 				ON case1.CaseID = aty.CaseID
 				AND case1.CaseStatusCode NOT IN ('CS10','CS20')
 	WHERE
@@ -171,7 +200,7 @@ WITH
 	SELECT DISTINCT
 			CaseID
 	FROM
-			jw50_Case
+			Case_CTE
 	WHERE
 			CaseStatusCode IN ('CS10','CS20')
 )
@@ -184,7 +213,7 @@ WITH
 	,		c.CaseTypeDesc
 	,		Client = client.CaseInvPersFullName2 
 	,		c.CaseTitle
-	,		c.CaseReceivedDtAsDate
+	--,		c.CaseReceivedDtAsDate
 	,		Office = ISNULL(office.CaseAgencyDesc,c.AgencyAddByDesc) 
 	,		OfficeCode = ISNULL(office.AgencyCode,c.AgencyAddByCode) 
 	,		InvestigatorStaffing = CAST(inv.NameAttributeCodeListDesc AS INT) 
@@ -212,7 +241,7 @@ WITH
 	,		c.CaseStatusCode
 	,		NumAttyOffice = CAST(ats.NameAttributeCodeListDesc AS INT) 
 	FROM
-			jw50_Case AS c 
+			Case_CTE AS c 
 			LEFT JOIN jw50_CaseAgency AS office 
 				ON office.CaseID = c.CaseID --must me an active defense agency  
 			LEFT JOIN jw50_CaseAgency AS court 
@@ -260,14 +289,11 @@ WITH
 		,		[Rule] = '1' 
 		,		[Heading] = 'New Cases' 
 		FROM
-				jw50_Case AS c 
+				Case_CTE AS c 
 				JOIN RuleOne_CTE AS r 
 					ON r.CaseID = c.CaseID
-		WHERE
-				r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
-				AND c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Rule 1 cases
-				
-		
+					AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+
 		UNION ALL
 ---------------------------------------------------------------------------------------------------------------------Rule 2
 		SELECT
@@ -275,8 +301,8 @@ WITH
 		,		[Rule] = '2' 
 		,		[Heading] = 'West Pre-Charge' 
 		FROM
-				jw50_Case AS c 
-				LEFT JOIN jw50_CaseAgency AS ca 
+				Case_CTE AS c 
+				LEFT JOIN jw50_CaseAgency AS ca --Probably should change to an OUTER APPLY
 					ON c.CaseID = ca.CaseID
 					AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		WHERE
@@ -290,7 +316,7 @@ WITH
 		,		[Rule] = '3' 
 		,		[Heading] = 'Reopened Cases' 
 		FROM
-				jw50_Case AS c 
+				Case_CTE AS c 
 				JOIN jw50_CaseAgency AS ca 
 					ON ca.CaseID = c.CaseID
 				CROSS APPLY (
@@ -330,29 +356,27 @@ WITH
 							jw50_Event AS e3
 					WHERE
 							e3.CaseID = c.CaseID
-							AND e3.EventTypeCode IN ('CS03','CS04','CS09','CS11') --Warrant, hired private council, dpa removed, and pro se
+							AND e3.EventTypeCode IN ('CS03','CS04','CS09','CS11','CSA14') --Added additional code
 							AND e3.EventID = courte.EventID
 					ORDER BY
 							e3.EventDt DESC) 
 					rule3
 			WHERE
-					c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Rule 1 cases
+					c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT')
 					AND ca.CaseAgencyMasterCode = 2 --Courts
 					AND ca.CaseAgencyNumber IS NOT NULL
 			
-			EXCEPT
+			EXCEPT --Can cases have multiple court numbers here? If so then the EXCEPT needs to take this into account
 				
 			SELECT DISTINCT
 					c.CaseID
 			,		[Rule] = '3' 
 			,		[Heading] = 'Reopened Cases' 
 			FROM
-					jw50_Case AS c 
+					Case_CTE AS c 
 					JOIN RuleOne_CTE AS r 
 						ON r.CaseID = c.CaseID
 						AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
-			WHERE
-					 c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTMIS','CTOTH','CTPPR','CTREV','CTWRT')
 		)
 		
 		UNION ALL
@@ -362,12 +386,12 @@ WITH
 		,		[Rule] = '4' 
 		,		[Heading] = 'Contempt Cases' 
 		FROM
-				jw50_Case AS c 
+				Case_CTE AS c 
 				JOIN jw50_CaseAgency AS ca 
 					ON ca.CaseID = c.CaseID 
 				LEFT JOIN jw50_Event AS opene4 
 					ON opene4.CaseID = c.CaseID
-					AND opene4.EventTypeCode = 'CS01' 
+					AND opene4.EventTypeCode = 'CS01' --How is it ensured that the charges were entered after the case was re-opened?
 				JOIN jw50_Event AS csc4 
 					ON csc4.CaseID = c.CaseID
 					AND csc4.EventTypeCodeType = 1 --only looking at events where the case status is changed
@@ -380,7 +404,7 @@ WITH
 					AND cc.CountID != contempt.CountID --pulling all cases where the count IDs aren't contempt	 
 		WHERE
 				contempt.CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End) --contempt cases added in the date range
-				AND c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTMIS','CTOTH','CTPPR','CTREV','CTWRT','OTHER') --Rule 1 cases
+				AND c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Rule 1 cases
 				AND ca.CaseAgencyMasterCode = 2 --Courts
 				AND ca.CaseAgencyNumber IS NOT NULL
 		
@@ -391,7 +415,7 @@ WITH
 		,		[Rule] = '5' 
 		,		[Heading] = 'Probation Violation Cases' 
 		FROM
-				jw50_Case AS c 
+				Case_CTE AS c 
 				JOIN jw50_CaseAgency AS ca 
 					ON ca.CaseID = c.CaseID
 				JOIN jw50_Count AS pv 
@@ -399,7 +423,7 @@ WITH
 					AND pv.StatuteChargeID IN ('26680','26800','26910','26911','26912') --new charges of probation violation, conditional discharge violation and pretrial deiversion violation
 					AND pv.CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		WHERE
-				c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTMIS','CTOTH','CTPPR','CTREV','CTWRT','OTHER') --Rule 1 cases
+				c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Rule 1 cases
 				AND ca.CaseAgencyMasterCode = 2 --Courts
 				AND ca.CaseAgencyNumber IS NOT NULL
 		
@@ -410,7 +434,7 @@ WITH
 		,		[Rule] = '6' 
 		,		[Heading] = 'Revocation Cases' 
 		FROM
-				jw50_Case AS c6 
+				Case_CTE AS c6 
 				LEFT JOIN jw50_CaseAgency AS ca 
 					ON ca.CaseID = c6.CaseID
 					AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
@@ -443,7 +467,7 @@ SELECT DISTINCT
 ,		AttyInvolvement = ISNULL(a.InvolveTypeDesc, 'N/A') 
 ,		AttyCount = COUNT(a.AttorneyID) OVER (PARTITION BY [Static]) 
 ,		NumWithAtty = COUNT(a.NoAttyCount) OVER (PARTITION BY [Static])
-,		m.CaseReceivedDtAsDate
+--,		m.CaseReceivedDtAsDate
 ,		m.County
 ,		m.Court
 ,		m.CourtNum
