@@ -77,7 +77,7 @@ WITH Case_CTE AS
 																				judge1.CaseAgencyID = ca.CaseAgencyID
 																		)
 						END
-					)
+					) 
 		,c.CaseID
 	FROM
 		Case_CTE AS c
