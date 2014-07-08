@@ -41,7 +41,7 @@ INSERT INTO @OfficeCode VALUES ('BOYCT')	--Boyd County Office
 --INSERT INTO @OfficeCode VALUES ('SOTOU')	--Somerset Office
 --INSERT INTO @OfficeCode VALUES ('STANT')	--Stanton Office
 ;
-
+--CTEs to cut down on unneccessary fields
 WITH Case_CTE AS
 (
 	SELECT
@@ -56,6 +56,21 @@ WITH Case_CTE AS
 	FROM
 		jw50_Case
 )
+,CaseAgency_CTE AS
+(
+	SELECT
+		CaseID
+		,CaseAgencyNameID
+		,CaseAgencyID
+		,AgencyCode
+		,CaseAgencyDesc
+		,CaseAgencyMasterCode
+		,CaseAgencyNumber
+		,CaseAgencyAddDt
+	FROM
+		jw50_CaseAgency
+)
+--Other CTEs
 ,RuleOne_CTE AS
 (
 	SELECT
@@ -77,7 +92,7 @@ WITH Case_CTE AS
 																				judge1.CaseAgencyID = ca.CaseAgencyID
 																		)
 						END
-					) 
+					)
 		,c.CaseID
 	FROM
 		Case_CTE AS c
@@ -111,7 +126,7 @@ WITH Case_CTE AS
 		,		NumAttyOffice = CAST(ats.NameAttributeCodeListDesc AS INT) 
 		,		Division = na.NameAttributeCodeListCode 
 		FROM
-				jw50_CaseAgency AS ca 
+				CaseAgency_CTE AS ca 
 				JOIN jw50_NameAttributes AS na 
 					ON na.NameID = ca.CaseAgencyNameID
 					AND na.NameAttributeCodeListCode = 'TRIAL' 
@@ -242,9 +257,9 @@ WITH Case_CTE AS
 	,		NumAttyOffice = CAST(ats.NameAttributeCodeListDesc AS INT) 
 	FROM
 			Case_CTE AS c 
-			LEFT JOIN jw50_CaseAgency AS office 
+			LEFT JOIN CaseAgency_CTE AS office 
 				ON office.CaseID = c.CaseID --must me an active defense agency  
-			LEFT JOIN jw50_CaseAgency AS court 
+			LEFT JOIN CaseAgency_CTE AS court 
 				ON c.CaseID = court.CaseID	
 				AND court.CaseAgencyMasterCode = 2 --Courts			 
 			/*LEFT JOIN jw50_CaseInvPers AS judge 
@@ -302,7 +317,7 @@ WITH Case_CTE AS
 		,		[Heading] = 'West Pre-Charge' 
 		FROM
 				Case_CTE AS c 
-				LEFT JOIN jw50_CaseAgency AS ca --Probably should change to an OUTER APPLY
+				LEFT JOIN CaseAgency_CTE AS ca --Probably should change to an OUTER APPLY
 					ON c.CaseID = ca.CaseID
 					AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		WHERE
@@ -317,7 +332,7 @@ WITH Case_CTE AS
 		,		[Heading] = 'Reopened Cases' 
 		FROM
 				Case_CTE AS c 
-				JOIN jw50_CaseAgency AS ca 
+				JOIN CaseAgency_CTE AS ca 
 					ON ca.CaseID = c.CaseID
 				CROSS APPLY (
 					SELECT TOP 1
@@ -387,7 +402,7 @@ WITH Case_CTE AS
 		,		[Heading] = 'Contempt Cases' 
 		FROM
 				Case_CTE AS c 
-				JOIN jw50_CaseAgency AS ca 
+				JOIN CaseAgency_CTE AS ca 
 					ON ca.CaseID = c.CaseID 
 				LEFT JOIN jw50_Event AS opene4 
 					ON opene4.CaseID = c.CaseID
@@ -416,7 +431,7 @@ WITH Case_CTE AS
 		,		[Heading] = 'Probation Violation Cases' 
 		FROM
 				Case_CTE AS c 
-				JOIN jw50_CaseAgency AS ca 
+				JOIN CaseAgency_CTE AS ca 
 					ON ca.CaseID = c.CaseID
 				JOIN jw50_Count AS pv 
 					ON pv.CaseID = c.CaseID
@@ -435,7 +450,7 @@ WITH Case_CTE AS
 		,		[Heading] = 'Revocation Cases' 
 		FROM
 				Case_CTE AS c6 
-				LEFT JOIN jw50_CaseAgency AS ca 
+				LEFT JOIN CaseAgency_CTE AS ca 
 					ON ca.CaseID = c6.CaseID
 					AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		WHERE
@@ -444,7 +459,7 @@ WITH Case_CTE AS
 					SELECT TOP 1 
 							ca2.CaseAgencyNumber 
 					FROM 
-							jw50_CaseAgency AS ca2
+							CaseAgency_CTE AS ca2
 					WHERE 
 							ca2.CaseID = c6.CaseID
 							AND ca2.CaseAgencyMasterCode = 2 --Court
