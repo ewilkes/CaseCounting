@@ -104,26 +104,31 @@ WITH Case_CTE AS
 --Other CTEs
 ,RuleOne_CTE AS
 (
-	SELECT
-		RuleOneDt = (
-			CASE
-				WHEN COUNT(judge.InvolveTypeCode) = 1 THEN c.CaseReceivedDt
-				WHEN COUNT(judge.InvolveTypeCode) > 1 THEN (
-					SELECT TOP 1 
-						judge1.CaseInvPersActiveDt
-					FROM 
-						CaseInvPers_CTE AS judge1 
-							INNER JOIN
-						CaseAgency_CTE AS ca 
-							ON ca.CaseID = c.CaseID
-							AND ca.CaseAgencyLead = 1
-							AND ca.CaseAgencyMasterCode = 2
-							--AND ca.CaseAgencyNumber IS NOT NULL
-					WHERE
-						judge1.CaseAgencyID = ca.CaseAgencyID
-															)
-			END
-					)
+	SELECT		
+		CASE
+			WHEN COUNT(judge.InvolveTypeCode) = 1 THEN c.CaseReceivedDt
+			WHEN COUNT(judge.InvolveTypeCode) > 1 THEN (
+															SELECT TOP 1 
+																judge1.CaseInvPersActiveDt
+															FROM
+																CaseInvPers_CTE AS judge1
+																	CROSS APPLY
+																(
+																	SELECT
+																		CaseID
+																		,CaseAgencyID
+																	FROM
+																		CaseAgency_CTE
+																	WHERE
+																		CaseID = c.CaseID
+																		AND CaseAgencyLead = 1
+																		AND CaseAgencyMasterCode = 2
+																	--AND ca.CaseAgencyNumber IS NOT NULL
+																) AS ca
+															WHERE
+																judge1.CaseAgencyID = ca.CaseAgencyID
+														)
+		END AS RuleOneDt
 		,c.CaseID
 	FROM
 		Case_CTE AS c
@@ -145,124 +150,111 @@ WITH Case_CTE AS
 		,c.CaseReceivedDt
 		,c.CaseID
 )
-,		OfficeList_CTE AS
+,OfficeList_CTE AS
 (
 	SELECT
-		NumAttyOfficeTotal = sum(NumAttyOffice) OVER (PARTITION BY Division) 
-	,	AgencyCode
+		NumAttyOfficeTotal = SUM(NumAttyOffice) OVER (PARTITION BY Division) 
+		,AgencyCode
 	FROM
 		(
 			SELECT DISTINCT
-					ca.CaseAgencyDesc
-			,		ca.AgencyCode
-			,		NumAttyOffice = CAST(ats.NameAttributeCodeListDesc AS INT) 
-			,		Division = na.NameAttributeCodeListCode 
+				ca.CaseAgencyDesc
+				,ca.AgencyCode
+				,NumAttyOffice = CAST(ats.NameAttributeCodeListDesc AS INT) 
+				,Division = na.NameAttributeCodeListCode 
 			FROM
-					CaseAgency_CTE AS ca 
-						INNER JOIN
-					NameAttributes_CTE AS na 
-							ON na.NameID = ca.CaseAgencyNameID
-							AND na.NameAttributeCodeListCode = 'TRIAL' 
-						LEFT OUTER JOIN
-					NameAttributes_CTE AS ats 
-							ON ats.NameID = ca.CaseAgencyNameID
-							AND ats.NameAttributeCode = 'ATTST' 
+				CaseAgency_CTE AS ca 
+					INNER JOIN
+				NameAttributes_CTE AS na 
+						ON na.NameID = ca.CaseAgencyNameID
+						AND na.NameAttributeCodeListCode = 'TRIAL' 
+					LEFT OUTER JOIN
+				NameAttributes_CTE AS ats 
+						ON ats.NameID = ca.CaseAgencyNameID
+						AND ats.NameAttributeCode = 'ATTST' 
 			WHERE
 					--ca.AgencyCode IN (@OfficeCode)
 					ca.AgencyCode IN (SELECT VALUE FROM @OfficeCode)
 		) AS atstotal
 )
-,		StatuteSeverity_CTE AS -- Get a list of all charges on open cases, list a numeric statute severity
-(
-	SELECT
-		StatuteRanked = ISNULL(co.StatuteDesc,'No Statutes') 
-	,	co.CaseID
-	,	StatuteClass = sc.Notes
-	,	co.StatuteClassDesc
-	,	rn = ROW_NUMBER() OVER (PARTITION BY co.CaseID ORDER BY sc.Notes, co.CountNum ASC) 
-	FROM
-		jw50_Count co
-		JOIN jw50_StatuteClassType sc 
-			ON co.StatuteClassCode = sc.Code
-)
-,		Conflicted_CTE AS
-(
-	SELECT DISTINCT
-		CaseID
-	FROM
-		Case_CTE
-	WHERE
-		CaseStatusCode IN ('CS10','CS20')
-)
-,		Main_CTE AS
+,Main_CTE AS
 (
 	
 	SELECT
 		c.CaseID
-	,	c.CaseTypeCode
-	,	c.CaseTypeDesc
-	,	Client = client.CaseInvPersFullName2 
-	,	c.CaseTitle
-	,	Office = ISNULL(office.CaseAgencyDesc,c.AgencyAddByDesc) 
-	,	OfficeCode = ISNULL(office.AgencyCode,c.AgencyAddByCode) 
-	,	InvestigatorStaffing = CAST(inv.NameAttributeCodeListDesc AS INT) 
-	,	SupportStaffing = CAST(ss.NameAttributeCodeListDesc AS INT) 
-	,	ServiceType = ISNULL(saty.NameAttributeCodeListDesc, 'N/A') 
-	,	Court = ISNULL(Court.CaseAgencyDesc,'No Court')
-	,	CourtID = Court.CaseAgencyID 
-	,	CourtNum = Court.CaseAgencyNumber 
-	,	County = ISNULL(County.NameAttributeCodeListDesc,'No County') 
-	,	[Static] = 'Static' 
-	--,	c.CaseStatusCode
-	,	NumAttyOffice = CAST(ats.NameAttributeCodeListDesc AS INT) 
+		,c.CaseTypeCode
+		,c.CaseTypeDesc
+		,c.CaseStatusCode
+		,Client = client.CaseInvPersFullName2
+		,c.CaseTitle
+		,Office = ISNULL(office.CaseAgencyDesc,c.AgencyAddByDesc) 
+		,OfficeCode = ISNULL(office.AgencyCode,c.AgencyAddByCode) 
+		,InvestigatorStaffing = CAST(inv.NameAttributeCodeListDesc AS INT) 
+		,SupportStaffing = CAST(ss.NameAttributeCodeListDesc AS INT) 
+		,ServiceType = ISNULL(saty.NameAttributeCodeListDesc,'N/A') 
+		,Court = ISNULL(Court.CaseAgencyDesc,'No Court')
+		,CourtID = Court.CaseAgencyID 
+		,CourtNum = Court.CaseAgencyNumber 
+		,County = ISNULL(County.NameAttributeCodeListDesc,'No County') 
+		,[Static] = 'Static'
+		,NumAttyOffice = CAST(ats.NameAttributeCodeListDesc AS INT) 
 	FROM
 		Case_CTE AS c 
-		LEFT JOIN CaseAgency_CTE AS office 
-			ON office.CaseID = c.CaseID
-		LEFT JOIN CaseAgency_CTE AS court 
-			ON c.CaseID = court.CaseID	
-			AND court.CaseAgencyMasterCode = 2 --Courts			 
-		LEFT JOIN NameAttributes_CTE AS county
-			ON county.NameID = court.CaseAgencyNameID
-			AND county.NameAttributeCode = 'COUNT' 
-		OUTER APPLY (
+			LEFT JOIN
+		CaseAgency_CTE AS office 
+				ON office.CaseID = c.CaseID
+			LEFT JOIN
+		CaseAgency_CTE AS court 
+				ON c.CaseID = court.CaseID	
+				AND court.CaseAgencyMasterCode = 2 --Courts			 
+			LEFT JOIN
+		NameAttributes_CTE AS county
+				ON county.NameID = court.CaseAgencyNameID
+				AND county.NameAttributeCode = 'COUNT' 
+			OUTER APPLY
+		(
 			SELECT TOP 1
 				cip.CaseInvPersFullName2
 			FROM
 				CaseInvPers_CTE AS cip
 			WHERE
 				cip.CaseID = c.CaseID
-				AND cip.InvolveTypeCode = 'CIT07')
-			client
-		LEFT JOIN NameAttributes_CTE AS saty 
-			ON saty.NameID = office.CaseAgencyNameID
-			AND saty.NameAttributeCode = 'SATY' 
-		LEFT JOIN NameAttributes_CTE AS inv 
-			ON inv.NameID = office.CaseAgencyNameID
-			AND inv.NameAttributeCode = 'INVST' 
-		LEFT JOIN NameAttributes_CTE AS ss 
-			ON ss.NameID = office.CaseAgencyNameID
-			AND ss.NameAttributeCode = 'SSSTF'  --Active attorneys
-		LEFT JOIN NameAttributes_CTE AS ats 
-			ON ats.NameID = office.CaseAgencyNameID
-			AND ats.NameAttributeCode = 'ATTST'
+				AND cip.InvolveTypeCode = 'CIT07'
+		) AS client
+			LEFT JOIN
+		NameAttributes_CTE AS saty 
+				ON saty.NameID = office.CaseAgencyNameID
+				AND saty.NameAttributeCode = 'SATY' 
+			LEFT JOIN
+		NameAttributes_CTE AS inv 
+				ON inv.NameID = office.CaseAgencyNameID
+				AND inv.NameAttributeCode = 'INVST' 
+			LEFT JOIN
+		NameAttributes_CTE AS ss 
+				ON ss.NameID = office.CaseAgencyNameID
+				AND ss.NameAttributeCode = 'SSSTF'  --Active attorneys
+			LEFT JOIN
+		NameAttributes_CTE AS ats 
+				ON ats.NameID = office.CaseAgencyNameID
+				AND ats.NameAttributeCode = 'ATTST'
 )
-,		CaseCountRules_CTE AS
+,CaseCountRules_CTE AS
 (
 	SELECT
 		temp.CaseID
-	,	[Rule]
-	,	Heading
+		,[Rule]
+		,Heading
 	FROM
 	(
 ---------------------------------------------------------------------------------------------------------------------Rule 1
 		SELECT DISTINCT
 			c.CaseID
-		,	[Rule] = '1' 
-		,	[Heading] = 'New Cases' 
+			,[Rule] = '1' 
+			,[Heading] = 'New Cases' 
 		FROM
 			Case_CTE AS c 
-			JOIN RuleOne_CTE AS r 
+				INNER JOIN
+			RuleOne_CTE AS r 
 				ON r.CaseID = c.CaseID
 				AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 
@@ -270,11 +262,12 @@ WITH Case_CTE AS
 ---------------------------------------------------------------------------------------------------------------------Rule 2
 		SELECT
 			c.CaseID
-		,	[Rule] = '2' 
-		,	[Heading] = 'West Pre-Charge' 
+			,[Rule] = '2' 
+			,[Heading] = 'West Pre-Charge' 
 		FROM
 			Case_CTE AS c 
-			LEFT JOIN CaseAgency_CTE AS ca --Probably should change to an OUTER APPLY
+				LEFT OUTER JOIN
+			CaseAgency_CTE AS ca
 				ON c.CaseID = ca.CaseID
 				AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		WHERE
@@ -285,16 +278,18 @@ WITH Case_CTE AS
 	(
 		SELECT
 			c.CaseID
-		,	[Rule] = '3' 
-		,	[Heading] = 'Reopened Cases' 
+			,[Rule] = '3'
+			,[Heading] = 'Reopened Cases'
 		FROM
-			Case_CTE AS c 
-			JOIN CaseAgency_CTE AS ca 
-				ON ca.CaseID = c.CaseID
-			CROSS APPLY (
+			Case_CTE AS c
+				INNER JOIN
+			CaseAgency_CTE AS ca
+					ON ca.CaseID = c.CaseID
+				CROSS APPLY
+			(
 				SELECT TOP 1
 					e.EventDt
-				,	e.EventID
+					,e.EventID
 				FROM
 					jw50_Event AS e
 				WHERE
@@ -302,9 +297,10 @@ WITH Case_CTE AS
 					AND e.EventTypeCode = 'CS01'--open event type
 					AND e.EventDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 				ORDER BY
-					e.EventDt DESC) 
-				opene3 
-			CROSS APPLY(
+					e.EventDt DESC
+			) AS opene3
+				CROSS APPLY
+			(
 				SELECT TOP 1
 					e2.EventDt
 				,	e2.EventID
@@ -317,13 +313,14 @@ WITH Case_CTE AS
 					AND e2.EventID != opene3.EventID
 					AND e2.EventDt < opene3.EventDt --case statuses of warrent, hired private council, dpa removed, and pro se happen before case status of open
 				ORDER BY
-					e2.EventDt DESC) 
-				courte 
-			CROSS APPLY(
+					e2.EventDt DESC
+			) AS courte
+				CROSS APPLY
+			(
 				SELECT TOP 1
 					e3.EventDt
-				,	e3.EventID
-				,	e3.EventTypeCode
+					,e3.EventID
+					,e3.EventTypeCode
 				FROM
 					jw50_Event AS e3
 				WHERE
@@ -331,49 +328,80 @@ WITH Case_CTE AS
 					AND e3.EventTypeCode IN ('CS03','CS04','CS09','CS11','CSA14') --Added additional code
 					AND e3.EventID = courte.EventID
 				ORDER BY
-					e3.EventDt DESC) 
-				rule3
-			WHERE
-				c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
-				AND ca.CaseAgencyMasterCode = 2 --Courts
-				AND ca.CaseAgencyNumber IS NOT NULL
+					e3.EventDt DESC
+			) AS rule3
+		WHERE
+			c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
+			AND ca.CaseAgencyMasterCode = 2 --Courts
+			AND ca.CaseAgencyNumber IS NOT NULL
 			
-			EXCEPT --Can cases have multiple court numbers here? If so then the EXCEPT needs to take this into account
+		EXCEPT --Can cases have multiple court numbers here? If so then the EXCEPT needs to take this into account
 				
-			SELECT DISTINCT
-				c.CaseID
-			,	[Rule] = '3' 
-			,	[Heading] = 'Reopened Cases' 
-			FROM
-				Case_CTE AS c 
-				JOIN RuleOne_CTE AS r 
-					ON r.CaseID = c.CaseID
-					AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+		SELECT DISTINCT
+			c.CaseID
+			,[Rule] = '3' 
+			,[Heading] = 'Reopened Cases' 
+		FROM
+			Case_CTE AS c 
+				INNER JOIN
+			RuleOne_CTE AS r 
+				ON r.CaseID = c.CaseID
+				AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		)
 		
 		UNION ALL
 ---------------------------------------------------------------------------------------------------------------------Rule 4
 		SELECT DISTINCT
 			c.CaseID
-		,	[Rule] = '4' 
-		,	[Heading] = 'Contempt Cases' 
+			,[Rule] = '4' 
+			,[Heading] = 'Contempt Cases' 
 		FROM
-			Case_CTE AS c 
-			JOIN CaseAgency_CTE AS ca 
-				ON ca.CaseID = c.CaseID 
-			LEFT JOIN jw50_Event AS opene4 
-				ON opene4.CaseID = c.CaseID
-				AND opene4.EventTypeCode = 'CS01' --How is it ensured that the charges were entered after the case was re-opened?
-			JOIN jw50_Event AS csc4 
-				ON csc4.CaseID = c.CaseID
-				AND csc4.EventTypeCodeType = 1 --only looking at events where the case status is changed
-				AND csc4.EventTypeMasterCode = 2 --Case Status master of closed
-			JOIN jw50_Count AS contempt 
-				ON contempt.CaseID = c.CaseID
-				AND contempt.StatuteChargeID IN ('26480','26581','26482','2693','26930','2648','1150','11500')  --New charges of contempt
-			JOIN jw50_Count AS cc 
-				ON cc.CaseID = c.CaseID
-				AND cc.CountID != contempt.CountID --pulling all cases where the count IDs aren't contempt	 
+			Case_CTE AS c
+				INNER JOIN
+			CaseAgency_CTE AS ca
+					ON ca.CaseID = c.CaseID
+				OUTER APPLY----------------------------------------------------------------------------------------
+			(				--How is it ensured that the charges were entered after the case was re-opened?
+				SELECT
+					EventTypeCode
+				FROM
+					jw50_Event
+				WHERE
+					CaseID = c.CaseID
+					AND EventTypeCode = 'CS01'
+			) AS opene4
+				CROSS APPLY
+			(
+				SELECT
+					EventID
+				FROM
+					jw50_Event
+				WHERE
+					CaseID = c.CaseID
+					AND EventTypeCodeType = 1 --only looking at events where the case status is changed
+					AND EventTypeMasterCode = 2 --Case Status master of closed
+			) AS csc4
+				CROSS APPLY
+			(
+				SELECT
+					CountID
+					,CountIncidentDt
+				FROM
+					jw50_Count
+				WHERE
+					CaseID = c.CaseID
+					AND StatuteChargeID IN ('26480','26581','26482','2693','26930','2648','1150','11500')  --New charges of contempt
+			) AS contempt
+				CROSS APPLY
+			(
+				SELECT
+					CountID
+				FROM
+					jw50_Count
+				WHERE
+					CaseID = c.CaseID
+					AND CountID != contempt.CountID --pulling all cases where the count IDs aren't contempt	 
+			) AS cc
 		WHERE
 			contempt.CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End) --contempt cases added in the date range
 			AND c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
@@ -425,61 +453,78 @@ WITH Case_CTE AS
 
 SELECT DISTINCT
 	c.CaseID
-,	OfficeCaseCount = COUNT(CourtNum) OVER (PARTITION BY Office)
-,	CaseCountTotal = COUNT(CourtNum) OVER (PARTITION BY [Static])
-,	m.Office
-,	m.OfficeCode
-,	c.[Rule]
-,	c.Heading
-,	m.Client
-,	m.CaseTitle
-,	m.CaseTypeCode
-,	m.CaseTypeDesc
-,	AttorneyID = ISNULL(a.AttorneyID, 0) 
-,	Attorney = ISNULL(a.Attorney,'No Active Public Defender') 
-,	AttyInvolvement = ISNULL(a.InvolveTypeDesc, 'N/A') 
-,	AttyCount = COUNT(a.AttorneyID) OVER (PARTITION BY [Static]) 
-,	NumWithAtty = COUNT(a.NoAttyCount) OVER (PARTITION BY [Static])
-,	m.County
-,	m.Court
-,	m.CourtNum
-,	Judge = j.Attorney
-,	m.NumAttyOffice
-,	o.NumAttyOfficeTotal
-,	MostSevereCharge = ISNULL(s.StatuteClassDesc,'No Statute') 
-,	[Static]
+	,OfficeCaseCount = COUNT(CourtNum) OVER (PARTITION BY Office)
+	,CaseCountTotal = COUNT(CourtNum) OVER (PARTITION BY [Static])
+	,m.Office
+	,m.OfficeCode
+	,c.[Rule]
+	,c.Heading
+	,m.Client
+	,m.CaseTitle
+	,m.CaseTypeCode
+	,m.CaseTypeDesc
+	,AttorneyID = ISNULL(a.AttorneyID, 0) 
+	,Attorney = ISNULL(a.Attorney,'No Active Public Defender') 
+	,AttyInvolvement = ISNULL(a.InvolveTypeDesc, 'N/A') 
+	,AttyCount = COUNT(a.AttorneyID) OVER (PARTITION BY [Static]) 
+	,NumWithAtty = COUNT(a.NoAttyCount) OVER (PARTITION BY [Static])
+	,m.County
+	,m.Court
+	,m.CourtNum
+	,Judge = j.Attorney
+	,m.NumAttyOffice
+	,o.NumAttyOfficeTotal
+	,MostSevereCharge = ISNULL(s.StatuteClassDesc,'No Statute') 
+	,[Static]
 FROM
 	CaseCountRules_CTE AS c 
-	LEFT JOIN Main_CTE AS m 
-		ON c.CaseID = m.CaseID
+		LEFT OUTER JOIN
+	Main_CTE AS m
+			ON c.CaseID = m.CaseID
 	OUTER APPLY
 (
 	SELECT
 		aty.CaseID
-	,	AttorneyID = aty.CaseInvPersNameID
-	,	Attorney = aty.CaseInvPersFullName
-	,	aty.CaseInvPersActive
-
+		,AttorneyID = aty.CaseInvPersNameID
+		,Attorney = aty.CaseInvPersFullName
+		,aty.CaseInvPersActive
 	FROM
 		CaseInvPers_CTE AS aty
 	WHERE
 		aty.CaseAgencyID = m.CourtID
 		AND aty.InvolveTypeMasterCode = 14
-		AND aty.CaseInvPersActive = 
-			CASE
-			WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN CaseInvPersActive
-			WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN CaseInvPersActive
-			WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN CaseInvPersActive
-			WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN CaseInvPersActive
-			WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN CaseInvPersActive
-			END
+		AND 1 = CASE
+					WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+					WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
+					WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+					WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
+					WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+					ELSE 0
+				END
 ) AS j
-	LEFT JOIN StatuteSeverity_CTE AS s
-		ON s.CaseID = c.CaseID
-		AND s.rn = 1
-	LEFT JOIN Conflicted_CTE AS con 
-		ON con.CaseID = c.CaseID 
-		AND con.CaseID IS NULL --They don't want to count any conflicted cases
+	OUTER APPLY
+(
+	SELECT TOP 1
+		ISNULL(co.StatuteDesc,'No Statutes') AS StatuteRanked
+		,co.CaseID
+		,co.StatuteClassDesc
+	FROM
+		jw50_Count co
+			CROSS APPLY
+		(
+			SELECT TOP 1
+				Notes
+			FROM
+				jw50_StatuteClassType
+			WHERE
+				Code = co.StatuteClassCode
+		) AS sc
+	WHERE
+		co.CaseID = c.CaseID
+	ORDER BY
+		sc.Notes
+		,co.CountNum ASC
+) AS s
 	OUTER APPLY
 (
 	SELECT
@@ -495,21 +540,22 @@ FROM
 		aty.CaseID = c.CaseID
 		AND aty.CaseInvPersActive = j.CaseInvPersActive
 		AND aty.InvolveTypeCode IN ('CIT06','CIT19')
-		AND 1 = 
-			CASE
-			WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
-			WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
-			WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
-			WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
-			WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
-			ELSE 0
-			END
-) a
-	LEFT JOIN OfficeList_CTE AS o 
+		AND 1 = CASE
+					WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+					WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
+					WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+					WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
+					WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+					ELSE 0
+				END
+) AS a
+	LEFT JOIN
+OfficeList_CTE AS o 
 		ON o.AgencyCode = m.OfficeCode	
 WHERE
 	--m.OfficeCode IN (@OfficeCode)
 	OfficeCode IN (SELECT VALUE FROM @OfficeCode)
+	AND m.CaseStatusCode NOT IN ('CS10','CS20')
 	--and c.CaseID = '13-635030'
 ORDER BY
 	CaseID
