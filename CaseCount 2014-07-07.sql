@@ -67,8 +67,39 @@ WITH Case_CTE AS
 		,CaseAgencyMasterCode
 		,CaseAgencyNumber
 		,CaseAgencyAddDt
+		,CaseAgencyLead
 	FROM
 		jw50_CaseAgency
+)
+,NameAttributes_CTE AS
+(
+	SELECT
+		NameID
+		,NameAttributeCode
+		,NameAttributeCodeListCode
+		,NameAttributeCodeListDesc
+	FROM
+		jw50_NameAttributes
+)
+,CaseInvPers_CTE AS
+(
+	SELECT
+		CaseID
+		,CaseInvPersNameID
+		,CaseInvPersActive
+		,CaseInvPersActiveDt
+		,CaseInvPersInactiveDt
+		,CaseAgencyID
+		,CaseAgencyNameID
+		,InvolveTypeCode
+		,InvolveTypeDesc
+		,InvolveTypeMasterCode
+		,CaseInvPersFullName
+		,CaseInvPersFullName2
+		,CaseAgencyDesc
+
+	FROM
+		jw50_CaseInvPers
 )
 --Other CTEs
 ,RuleOne_CTE AS
@@ -81,9 +112,9 @@ WITH Case_CTE AS
 					SELECT TOP 1 
 						judge1.CaseInvPersActiveDt
 					FROM 
-						jw50_CaseInvPers AS judge1 
+						CaseInvPers_CTE AS judge1 
 							INNER JOIN
-						jw50_CaseAgency AS ca 
+						CaseAgency_CTE AS ca 
 							ON ca.CaseID = c.CaseID
 							AND ca.CaseAgencyLead = 1
 							AND ca.CaseAgencyMasterCode = 2
@@ -102,7 +133,7 @@ WITH Case_CTE AS
 				CaseID
 				,InvolveTypeCode
 			FROM
-				jw50_CaseInvPers
+				CaseInvPers_CTE
 			WHERE
 				CaseID = c.CaseID
 				AND InvolveTypeMasterCode = 14
@@ -119,23 +150,26 @@ WITH Case_CTE AS
 	SELECT
 		NumAttyOfficeTotal = sum(NumAttyOffice) OVER (PARTITION BY Division) 
 	,	AgencyCode
-	FROM(
-		SELECT DISTINCT
-			ca.CaseAgencyDesc
-		,	ca.AgencyCode
-		,	NumAttyOffice = CAST(ats.NameAttributeCodeListDesc AS INT) 
-		,	Division = na.NameAttributeCodeListCode 
-		FROM
-			CaseAgency_CTE AS ca 
-			JOIN jw50_NameAttributes AS na 
-				ON na.NameID = ca.CaseAgencyNameID
-				AND na.NameAttributeCodeListCode = 'TRIAL' 
-			LEFT JOIN jw50_NameAttributes AS ats 
-				ON ats.NameID = ca.CaseAgencyNameID
-				AND ats.NameAttributeCode = 'ATTST' 
-		WHERE
-			--ca.AgencyCode IN (@OfficeCode)
-			ca.AgencyCode IN (SELECT VALUE FROM @OfficeCode)
+	FROM
+		(
+			SELECT DISTINCT
+					ca.CaseAgencyDesc
+			,		ca.AgencyCode
+			,		NumAttyOffice = CAST(ats.NameAttributeCodeListDesc AS INT) 
+			,		Division = na.NameAttributeCodeListCode 
+			FROM
+					CaseAgency_CTE AS ca 
+						INNER JOIN
+					NameAttributes_CTE AS na 
+							ON na.NameID = ca.CaseAgencyNameID
+							AND na.NameAttributeCodeListCode = 'TRIAL' 
+						LEFT OUTER JOIN
+					NameAttributes_CTE AS ats 
+							ON ats.NameID = ca.CaseAgencyNameID
+							AND ats.NameAttributeCode = 'ATTST' 
+			WHERE
+					--ca.AgencyCode IN (@OfficeCode)
+					ca.AgencyCode IN (SELECT VALUE FROM @OfficeCode)
 		) AS atstotal
 )
 ,		Attorneys_CTE AS
@@ -151,7 +185,7 @@ WITH Case_CTE AS
 	,	aty.CaseInvPersActiveDt
 	,	aty.CaseInvPersInactiveDt
 	FROM
-		jw50_CaseInvPers AS aty 
+		CaseInvPers_CTE AS aty 
 		JOIN Case_CTE AS case1 
 			ON case1.CaseID = aty.CaseID
 			AND case1.CaseStatusCode NOT IN ('CS10','CS20')
@@ -181,7 +215,7 @@ WITH Case_CTE AS
 	,	aty.CaseInvPersInactiveDt
 
 	FROM
-		jw50_CaseInvPers AS aty 
+		CaseInvPers_CTE AS aty 
 		JOIN Case_CTE AS case1 
 			ON case1.CaseID = aty.CaseID
 			AND case1.CaseStatusCode NOT IN ('CS10','CS20')
@@ -246,28 +280,28 @@ WITH Case_CTE AS
 		LEFT JOIN CaseAgency_CTE AS court 
 			ON c.CaseID = court.CaseID	
 			AND court.CaseAgencyMasterCode = 2 --Courts			 
-		LEFT JOIN jw50_NameAttributes AS county
+		LEFT JOIN NameAttributes_CTE AS county
 			ON county.NameID = court.CaseAgencyNameID
 			AND county.NameAttributeCode = 'COUNT' 
 		OUTER APPLY (
 			SELECT TOP 1
 				cip.CaseInvPersFullName2
 			FROM
-				jw50_CaseInvPers AS cip
+				CaseInvPers_CTE AS cip
 			WHERE
 				cip.CaseID = c.CaseID
 				AND cip.InvolveTypeCode = 'CIT07')
 			client
-		LEFT JOIN jw50_NameAttributes AS saty 
+		LEFT JOIN NameAttributes_CTE AS saty 
 			ON saty.NameID = office.CaseAgencyNameID
 			AND saty.NameAttributeCode = 'SATY' 
-		LEFT JOIN jw50_NameAttributes AS inv 
+		LEFT JOIN NameAttributes_CTE AS inv 
 			ON inv.NameID = office.CaseAgencyNameID
 			AND inv.NameAttributeCode = 'INVST' 
-		LEFT JOIN jw50_NameAttributes AS ss 
+		LEFT JOIN NameAttributes_CTE AS ss 
 			ON ss.NameID = office.CaseAgencyNameID
 			AND ss.NameAttributeCode = 'SSSTF'  --Active attorneys
-		LEFT JOIN jw50_NameAttributes AS ats 
+		LEFT JOIN NameAttributes_CTE AS ats 
 			ON ats.NameID = office.CaseAgencyNameID
 			AND ats.NameAttributeCode = 'ATTST'
 )
@@ -446,6 +480,7 @@ WITH Case_CTE AS
 					AND ca2.CaseAgencyMasterCode = 2 --Court
 					AND ca2.CaseAgencyNumber IS NOT NULL)
 	) AS temp)
+
 SELECT DISTINCT
 	c.CaseID
 ,	OfficeCaseCount = COUNT(CourtNum) OVER (PARTITION BY Office)
