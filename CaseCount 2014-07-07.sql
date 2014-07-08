@@ -172,64 +172,6 @@ WITH Case_CTE AS
 					ca.AgencyCode IN (SELECT VALUE FROM @OfficeCode)
 		) AS atstotal
 )
-,		Attorneys_CTE AS
-(
-	SELECT
-		aty.CaseID
-	,	NoAttyCount = aty.CaseAgencyDesc 
-	,	AttorneyID = aty.CaseInvPersNameID 
-	,	aty.InvolveTypeCode
-	,	aty.InvolveTypeDesc
-	,	aty.CaseAgencyNameID
-	,	Attorney = aty.CaseInvPersFullName 
-	,	aty.CaseInvPersActiveDt
-	,	aty.CaseInvPersInactiveDt
-	FROM
-		CaseInvPers_CTE AS aty 
-		JOIN Case_CTE AS case1 
-			ON case1.CaseID = aty.CaseID
-			AND case1.CaseStatusCode NOT IN ('CS10','CS20')
-	WHERE
-		aty.InvolveTypeCode IN ('CIT06','CIT19')
-		AND aty.CaseInvPersActive = 
-			CASE
-			WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN CaseInvPersActive
-			WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN CaseInvPersActive
-			WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN CaseInvPersActive
-			WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN CaseInvPersActive
-			WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN CaseInvPersActive
-			END
-) 
-,		Judges_CTE AS
-(
-	SELECT
-		aty.CaseID
-	,	NoAttyCount = aty.CaseAgencyDesc 
-	,	AttorneyID = aty.CaseInvPersNameID 
-	,	aty.InvolveTypeCode
-	,	aty.InvolveTypeDesc
-	,	aty.CaseAgencyNameID
-	,	aty.CaseAgencyID
-	,	Attorney = aty.CaseInvPersFullName 
-	,	aty.CaseInvPersActiveDt
-	,	aty.CaseInvPersInactiveDt
-
-	FROM
-		CaseInvPers_CTE AS aty 
-		JOIN Case_CTE AS case1 
-			ON case1.CaseID = aty.CaseID
-			AND case1.CaseStatusCode NOT IN ('CS10','CS20')
-	WHERE
-		aty.InvolveTypeMasterCode = 14
-		AND aty.CaseInvPersActive = 
-			CASE
-			WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN CaseInvPersActive
-			WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN CaseInvPersActive
-			WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN CaseInvPersActive
-			WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN CaseInvPersActive
-			WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN CaseInvPersActive
-			END
-)
 ,		StatuteSeverity_CTE AS -- Get a list of all charges on open cases, list a numeric statute severity
 (
 	SELECT
@@ -509,18 +451,60 @@ SELECT DISTINCT
 FROM
 	CaseCountRules_CTE AS c 
 	LEFT JOIN Main_CTE AS m 
-		ON c.CaseID = m.CaseID 
-	LEFT JOIN Judges_CTE AS j
-		ON j.CaseAgencyID = m.CourtID
+		ON c.CaseID = m.CaseID
+	OUTER APPLY
+(
+	SELECT
+		aty.CaseID
+	,	AttorneyID = aty.CaseInvPersNameID
+	,	Attorney = aty.CaseInvPersFullName
+	,	aty.CaseInvPersActive
+
+	FROM
+		CaseInvPers_CTE AS aty
+	WHERE
+		aty.CaseAgencyID = m.CourtID
+		AND aty.InvolveTypeMasterCode = 14
+		AND aty.CaseInvPersActive = 
+			CASE
+			WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN CaseInvPersActive
+			WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN CaseInvPersActive
+			WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN CaseInvPersActive
+			WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN CaseInvPersActive
+			WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN CaseInvPersActive
+			END
+) AS j
 	LEFT JOIN StatuteSeverity_CTE AS s
 		ON s.CaseID = c.CaseID
 		AND s.rn = 1
 	LEFT JOIN Conflicted_CTE AS con 
 		ON con.CaseID = c.CaseID 
 		AND con.CaseID IS NULL --They don't want to count any conflicted cases
-	LEFT JOIN Attorneys_CTE AS a 
-		ON a.CaseID = c.CaseID
-		AND a.CaseInvPersActiveDt = j.CaseInvPersActiveDt OR a.CaseInvPersInactiveDt = j.CaseInvPersInactiveDt
+	OUTER APPLY
+(
+	SELECT
+		aty.CaseID
+	,	NoAttyCount = aty.CaseAgencyDesc
+	,	AttorneyID = aty.CaseInvPersNameID
+	,	aty.InvolveTypeDesc
+	,	aty.CaseAgencyNameID
+	,	Attorney = aty.CaseInvPersFullName
+	FROM
+		CaseInvPers_CTE AS aty
+	WHERE
+		aty.CaseID = c.CaseID
+		AND aty.CaseInvPersActive = j.CaseInvPersActive
+		AND aty.InvolveTypeCode IN ('CIT06','CIT19')
+		AND 1 = 
+			CASE
+			WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+			WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
+			WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+			WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
+			WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+			ELSE 0
+			END
+) a
 	LEFT JOIN OfficeList_CTE AS o 
 		ON o.AgencyCode = m.OfficeCode	
 WHERE
