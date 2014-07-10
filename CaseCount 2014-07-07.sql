@@ -1,5 +1,5 @@
 DECLARE @Start DATE = '07-01-2013'
-DECLARE @End DATE = '7/31/2013'--'12-31-2013'
+DECLARE @End DATE = '7/31/2014'--'12-31-2013'
 --DECLARE @Start DATE = '04-01-2014'
 --DECLARE @End DATE = '04-30-2014'
 DECLARE @OfficeCode TABLE
@@ -97,7 +97,7 @@ WITH Case_CTE AS
 		,CaseInvPersFullName
 		,CaseInvPersFullName2
 		,CaseAgencyDesc
-
+		,ForCaseInvPersNameID
 	FROM
 		jw50_CaseInvPers
 )
@@ -107,27 +107,31 @@ WITH Case_CTE AS
 	SELECT		
 		CASE
 			WHEN COUNT(judge.InvolveTypeCode) = 1 THEN c.CaseReceivedDt
-			WHEN COUNT(judge.InvolveTypeCode) > 1 THEN (
-															SELECT TOP 1 
-																judge1.CaseInvPersActiveDt
-															FROM
-																CaseInvPers_CTE AS judge1
-																	CROSS APPLY
+			WHEN COUNT(judge.InvolveTypeCode) > 1 THEN ISNULL(
 																(
-																	SELECT
-																		CaseID
-																		,CaseAgencyID
+																	SELECT TOP 1 
+																		judge1.CaseInvPersActiveDt
 																	FROM
-																		CaseAgency_CTE
+																		CaseInvPers_CTE AS judge1
+																			CROSS APPLY
+																		(
+																			SELECT TOP 1
+																				CaseID
+																				,CaseAgencyID
+																			FROM
+																				CaseAgency_CTE
+																			WHERE
+																				CaseID = c.CaseID
+																				AND CaseAgencyLead = 1
+																				AND CaseAgencyMasterCode = 2
+																		) AS ca
 																	WHERE
-																		CaseID = c.CaseID
-																		AND CaseAgencyLead = 1
-																		AND CaseAgencyMasterCode = 2
-																	--AND ca.CaseAgencyNumber IS NOT NULL
-																) AS ca
-															WHERE
-																judge1.CaseAgencyID = ca.CaseAgencyID
-														)
+																		judge1.CaseAgencyID = ca.CaseAgencyID
+																		AND judge1.InvolveTypeCode = 'CIT03'
+																	ORDER BY
+																		judge1.CaseInvPersActiveDt ASC
+																	),c.CaseReceivedDt
+																)
 		END AS RuleOneDt
 		,c.CaseID
 	FROM
@@ -193,7 +197,8 @@ WITH Case_CTE AS
 		,SupportStaffing = CAST(ss.NameAttributeCodeListDesc AS INT) 
 		,ServiceType = ISNULL(saty.NameAttributeCodeListDesc,'N/A') 
 		,Court = ISNULL(Court.CaseAgencyDesc,'No Court')
-		,CourtID = Court.CaseAgencyID 
+		,CourtID = Court.CaseAgencyID
+		,Court.CaseAgencyNameID
 		,CourtNum = Court.CaseAgencyNumber 
 		,County = ISNULL(County.NameAttributeCodeListDesc,'No County') 
 		,[Static] = 'Static'
@@ -269,7 +274,8 @@ WITH Case_CTE AS
 				LEFT OUTER JOIN
 			CaseAgency_CTE AS ca
 				ON c.CaseID = ca.CaseID
-				AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+				--AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End
+				AND c.CaseReceivedDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		WHERE
 			c.CaseTypeCode = 'CTWST' --WestPC
 		
@@ -412,16 +418,18 @@ WITH Case_CTE AS
 ---------------------------------------------------------------------------------------------------------------------Rule 5
 		SELECT DISTINCT
 			c.CaseID
-		,	[Rule] = '5' 
-		,	[Heading] = 'Probation Violation Cases' 
+			,[Rule] = '5' 
+			,[Heading] = 'Probation Violation Cases' 
 		FROM
-			Case_CTE AS c 
-			JOIN CaseAgency_CTE AS ca 
-				ON ca.CaseID = c.CaseID
-			JOIN jw50_Count AS pv 
-				ON pv.CaseID = c.CaseID
-				AND pv.StatuteChargeID IN ('26680','26800','26910','26911','26912') --new charges of probation violation, conditional discharge violation and pretrial deiversion violation
-				AND pv.CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+			Case_CTE AS c
+				INNER JOIN
+			CaseAgency_CTE AS ca
+					ON ca.CaseID = c.CaseID
+				INNER JOIN
+			jw50_Count AS pv
+					ON pv.CaseID = c.CaseID
+					AND pv.StatuteChargeID IN ('26680','26800','26910','26911','26912') --new charges of probation violation, conditional discharge violation and pretrial deiversion violation
+					AND pv.CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		WHERE
 			c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
 			AND ca.CaseAgencyMasterCode = 2 --Courts
@@ -431,24 +439,26 @@ WITH Case_CTE AS
 ---------------------------------------------------------------------------------------------------------------------Rule 6
 		SELECT
 			c6.CaseID
-		,	[Rule] = '6' 
-		,	[Heading] = 'Revocation Cases' 
+			,[Rule] = '6' 
+			,[Heading] = 'Revocation Cases' 
 		FROM
-			Case_CTE AS c6 
-			LEFT JOIN CaseAgency_CTE AS ca 
-				ON ca.CaseID = c6.CaseID
-				AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+			Case_CTE AS c6
+				LEFT JOIN
+			CaseAgency_CTE AS ca
+					ON ca.CaseID = c6.CaseID
+					AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		WHERE
 			c6.CaseTypeCode = 'CTREV' --Revocation cases
 			AND NOT EXISTS (
-				SELECT TOP 1 
-					ca2.CaseAgencyNumber 
-				FROM 
-					CaseAgency_CTE AS ca2
-				WHERE 
-					ca2.CaseID = c6.CaseID
-					AND ca2.CaseAgencyMasterCode = 2 --Court
-					AND ca2.CaseAgencyNumber IS NOT NULL)
+								SELECT TOP 1 
+									ca2.CaseAgencyNumber 
+								FROM 
+									CaseAgency_CTE AS ca2
+								WHERE 
+									ca2.CaseID = c6.CaseID
+									AND ca2.CaseAgencyMasterCode = 2 --Court
+									AND ca2.CaseAgencyNumber IS NOT NULL
+							)
 	) AS temp)
 
 SELECT DISTINCT
@@ -466,8 +476,11 @@ SELECT DISTINCT
 	,AttorneyID = ISNULL(a.AttorneyID, 0) 
 	,Attorney = ISNULL(a.Attorney,'No Active Public Defender') 
 	,AttyInvolvement = ISNULL(a.InvolveTypeDesc, 'N/A') 
-	,AttyCount = COUNT(a.AttorneyID) OVER (PARTITION BY [Static]) 
+	,AttyCount = COUNT(a.AttorneyID) OVER (PARTITION BY [Static])
 	,NumWithAtty = COUNT(a.NoAttyCount) OVER (PARTITION BY [Static])
+	,atc.NumOfAtty
+	,atc.CaseInvPersActiveDt
+	,atc.CaseInvPersNameID
 	,m.County
 	,m.Court
 	,m.CourtNum
@@ -492,7 +505,7 @@ FROM
 		CaseInvPers_CTE AS aty
 	WHERE
 		aty.CaseAgencyID = m.CourtID
-		AND aty.InvolveTypeMasterCode = 14
+		AND aty.InvolveTypeCode = 'CIT03'
 		AND 1 = CASE
 					WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
 					WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
@@ -527,27 +540,68 @@ FROM
 ) AS s
 	OUTER APPLY
 (
+	SELECT TOP 1
+		COUNT(CaseInvPersNameID) OVER (PARTITION BY CaseID) AS NumOfAtty
+		,CaseInvPersActiveDt
+		,CaseInvPersNameID
+	FROM
+		CaseInvPers_CTE
+	WHERE
+		CaseID = c.CaseID
+		AND InvolveTypeCode IN ('CIT06','CIT19','CONTR','CIT22')
+	ORDER BY
+		CaseInvPersActiveDt ASC
+) AS atc
+	OUTER APPLY
+(
 	SELECT
 		aty.CaseID
-	,	NoAttyCount = aty.CaseAgencyDesc
-	,	AttorneyID = aty.CaseInvPersNameID
-	,	aty.InvolveTypeDesc
-	,	aty.CaseAgencyNameID
-	,	Attorney = aty.CaseInvPersFullName
+		,NoAttyCount = aty.CaseAgencyDesc
+		,AttorneyID = aty.CaseInvPersNameID
+		,aty.InvolveTypeDesc
+		,aty.CaseAgencyNameID
+		,Attorney = aty.CaseInvPersFullName
+		,aty.CaseInvPersNameID
 	FROM
 		CaseInvPers_CTE AS aty
+			OUTER APPLY
+		(
+			SELECT
+				CaseAgencyNameID
+			FROM
+				CaseInvPers_CTE
+			WHERE
+				CaseID = c.CaseID
+				AND CaseInvPersNameID = aty.ForCaseInvPersNameID
+				AND InvolveTypeCode = 'CIT03'
+		) AS jcheck
 	WHERE
 		aty.CaseID = c.CaseID
-		AND aty.CaseInvPersActive = j.CaseInvPersActive
 		AND aty.InvolveTypeCode IN ('CIT06','CIT19')
-		AND 1 = CASE
-					WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
-					WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
-					WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
-					WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
-					WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
-					ELSE 0
+		AND (--jcheck.CaseAgencyNameID = m.CaseAgencyNameID OR 
+		aty.CaseInvPersNameID = atc.CaseInvPersNameID)
+		AND 1 = CASE 
+					WHEN c.[Rule] = 1 THEN CASE
+												WHEN atc.NumOfAtty > 1 THEN
+																			CASE
+																				--WHEN jcheck.CaseInvPersNameID IS NOT NULL
+																				
+																				WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+																				WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
+																				WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+																				WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
+																				WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+																				ELSE 0
+																			END
+												ELSE 1
+											END
+					WHEN c.[Rule] = 2 THEN 1
+					WHEN c.[Rule] = 3 THEN 1
+					WHEN c.[Rule] = 4 THEN 1
+					WHEN c.[Rule] = 5 THEN 1
+					WHEN c.[Rule] = 6 THEN 1
 				END
+											
 ) AS a
 	LEFT JOIN
 OfficeList_CTE AS o 
@@ -556,6 +610,6 @@ WHERE
 	--m.OfficeCode IN (@OfficeCode)
 	OfficeCode IN (SELECT VALUE FROM @OfficeCode)
 	AND m.CaseStatusCode NOT IN ('CS10','CS20')
-	--and c.CaseID = '13-635030'
+	and c.CaseID IN ('14-14','14-15')
 ORDER BY
 	CaseID
