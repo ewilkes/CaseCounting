@@ -254,18 +254,16 @@ WITH Case_CTE AS
 	FROM
 	(
 ---------------------------------------------------------------------------------------------------------------------Rule 1
-		SELECT DISTINCT
-			c.CaseID
-			,[Rule] = '1' 
-			,[Heading] = 'New Cases' 
-		FROM
-			Case_CTE AS c 
-				INNER JOIN
-			RuleOne_CTE AS r 
-				ON r.CaseID = c.CaseID
-				AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+		--SELECT DISTINCT
+		--	CaseID
+		--	,[Rule] = '1' 
+		--	,[Heading] = 'New Cases' 
+		--FROM
+		--	RuleOne_CTE AS r
+		--WHERE
+		--	r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 
-		UNION ALL
+		--UNION ALL
 ---------------------------------------------------------------------------------------------------------------------Rule 2
 		SELECT
 			c.CaseID
@@ -277,200 +275,234 @@ WITH Case_CTE AS
 			CaseAgency_CTE AS ca
 				ON c.CaseID = ca.CaseID
 				--AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End
-				AND c.CaseReceivedDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+				--AND c.CaseReceivedDt BETWEEN @Start AND DATEADD(DAY,1,@End)
 		WHERE
 			c.CaseTypeCode = 'CTWST' --WestPC
 		
-		UNION ALL
----------------------------------------------------------------------------------------------------------------------Rule 3
-	(
-		SELECT
-			c.CaseID
-			,[Rule] = '3'
-			,[Heading] = 'Reopened Cases'
-		FROM
-			Case_CTE AS c
-				INNER JOIN
-			CaseAgency_CTE AS ca
-					ON ca.CaseID = c.CaseID
-				CROSS APPLY
-			(
-				SELECT TOP 1
-					e.EventDt
-					,e.EventID
-				FROM
-					jw50_Event AS e
-				WHERE
-					e.CaseID = c.CaseID
-					AND e.EventTypeCode = 'CS01'--open event type
-					AND e.EventDt BETWEEN @Start AND DATEADD(DAY,1,@End)
-				ORDER BY
-					e.EventDt DESC
-			) AS opene3
-				CROSS APPLY
-			(
-				SELECT TOP 1
-					e2.EventDt
-				,	e2.EventID
-				,	e2.EventTypeCode
-				FROM
-					jw50_Event AS e2
-				WHERE
-					e2.CaseID = c.CaseID
-					AND e2.EventTypeCodeType = 1 --case status
-					AND e2.EventID != opene3.EventID
-					AND e2.EventDt < opene3.EventDt --case statuses of warrent, hired private council, dpa removed, and pro se happen before case status of open
-				ORDER BY
-					e2.EventDt DESC
-			) AS courte
-				CROSS APPLY
-			(
-				SELECT TOP 1
-					e3.EventDt
-					,e3.EventID
-					,e3.EventTypeCode
-				FROM
-					jw50_Event AS e3
-				WHERE
-					e3.CaseID = c.CaseID
-					AND e3.EventTypeCode IN ('CS03','CS04','CS09','CS11','CSA14','CS13','CS16') --Added additional code
-					AND e3.EventID = courte.EventID
-				ORDER BY
-					e3.EventDt DESC
-			) AS rule3
-		WHERE
-			c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
-			AND ca.CaseAgencyMasterCode = 2 --Courts
-			AND ca.CaseAgencyNumber IS NOT NULL
+--		UNION ALL
+-----------------------------------------------------------------------------------------------------------------------Rule 3
+--	(
+--		SELECT
+--			c.CaseID
+--			,[Rule] = '3'
+--			,[Heading] = 'Reopened Cases'
+--		FROM
+--			Case_CTE AS c
+--				INNER JOIN
+--			CaseAgency_CTE AS ca
+--					ON ca.CaseID = c.CaseID
+--				CROSS APPLY
+--			(
+--				SELECT TOP 1
+--					e.EventDt
+--					,e.EventID
+--				FROM
+--					jw50_Event AS e
+--				WHERE
+--					e.CaseID = c.CaseID
+--					AND e.EventTypeCode = 'CS01'--open event type
+--					AND e.EventDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+--				ORDER BY
+--					e.EventDt DESC
+--			) AS opene3
+--				CROSS APPLY
+--			(
+--				SELECT TOP 1
+--					e2.EventDt
+--					,e2.EventID
+--					,e2.EventTypeCode
+--				FROM
+--					jw50_Event AS e2
+--				WHERE
+--					e2.CaseID = c.CaseID
+--					AND e2.EventTypeCodeType = 1 --case status
+--					AND e2.EventID != opene3.EventID
+--					AND e2.EventDt < opene3.EventDt --case statuses of warrent, hired private council, dpa removed, and pro se happen before case status of open
+--				ORDER BY
+--					e2.EventDt DESC
+--			) AS courte
+--				CROSS APPLY
+--			(
+--				SELECT TOP 1
+--					e3.EventDt
+--					,e3.EventID
+--					,e3.EventTypeCode
+--				FROM
+--					jw50_Event AS e3
+--				WHERE
+--					e3.CaseID = c.CaseID
+--					AND e3.EventTypeCode IN ('CS03','CS04','CS09','CS11','CSA14','CS13','CS16') --Added additional code
+--					AND e3.EventID = courte.EventID
+--				ORDER BY
+--					e3.EventDt DESC
+--			) AS rule3
+--		WHERE
+--			c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
+--			AND ca.CaseAgencyMasterCode = 2 --Courts
+--			AND ca.CaseAgencyNumber IS NOT NULL
 			
-		EXCEPT --Can cases have multiple court numbers here? If so then the EXCEPT needs to take this into account
+--		EXCEPT
 				
-		SELECT DISTINCT
-			c.CaseID
-			,[Rule] = '3' 
-			,[Heading] = 'Reopened Cases' 
-		FROM
-			Case_CTE AS c 
-				INNER JOIN
-			RuleOne_CTE AS r 
-				ON r.CaseID = c.CaseID
-				AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
-		)
+--		SELECT DISTINCT
+--			c.CaseID
+--			,[Rule] = '3' 
+--			,[Heading] = 'Reopened Cases' 
+--		FROM
+--			Case_CTE AS c
+--				INNER JOIN
+--			RuleOne_CTE AS r
+--				ON r.CaseID = c.CaseID
+--				AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+--		)
 		
-		UNION ALL
----------------------------------------------------------------------------------------------------------------------Rule 4
-		SELECT DISTINCT
-			c.CaseID
-			,[Rule] = '4' 
-			,[Heading] = 'Contempt Cases' 
-		FROM
-			Case_CTE AS c
-				INNER JOIN
-			CaseAgency_CTE AS ca
-					ON ca.CaseID = c.CaseID
-				OUTER APPLY----------------------------------------------------------------------------------------
-			(				--How is it ensured that the charges were entered after the case was re-opened?
-				SELECT
-					EventTypeCode
-					,EventDt
-				FROM
-					jw50_Event
-				WHERE
-					CaseID = c.CaseID
-					AND EventTypeCode = 'CS01'
-			) AS opene4
-				CROSS APPLY
-			(
-				SELECT
-					EventID
-					,EventDt
-				FROM
-					jw50_Event
-				WHERE
-					CaseID = c.CaseID
-					AND EventTypeCodeType = 1 --only looking at events where the case status is changed
-					AND EventTypeMasterCode = 2 --Case Status master of closed
-			) AS csc4
-				CROSS APPLY
-			(
-				SELECT
-					CountID
-					,CountIncidentDt
-				FROM
-					jw50_Count
-				WHERE
-					CaseID = c.CaseID
-					AND StatuteChargeID IN ('26480','26481','26482','2693','26930','2648','1150','11500')  --New charges of contempt
-			) AS contempt
-				CROSS APPLY
-			(
-				SELECT
-					CountID
-					,CountIncidentDt
-				FROM
-					jw50_Count
-				WHERE
-					CaseID = c.CaseID
-					AND CountID != contempt.CountID --pulling all cases where the count IDs aren't contempt	 
-			) AS cc
-		WHERE
-			contempt.CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End) --contempt cases added in the date range
-			AND DATEADD(DAY,14,contempt.CountIncidentDt) > cc.CountIncidentDt --contempt charges were added 14 days after non contempt charges were added
-			AND c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
-			AND ca.CaseAgencyMasterCode = 2 --Courts
-			AND ca.CaseAgencyNumber IS NOT NULL
+--		UNION ALL
+-----------------------------------------------------------------------------------------------------------------------Rule 4
+--	(
+--		SELECT DISTINCT
+--			c.CaseID
+--			,[Rule] = '4' 
+--			,[Heading] = 'Contempt Cases' 
+--		FROM
+--			Case_CTE AS c
+--				INNER JOIN
+--			CaseAgency_CTE AS ca
+--					ON ca.CaseID = c.CaseID
+--				CROSS APPLY
+--			(
+--				SELECT TOP 1
+--					CountID
+--					,CountIncidentDt
+--				FROM
+--					jw50_Count
+--				WHERE
+--					CaseID = c.CaseID
+--					AND StatuteChargeID IN ('26480','26481','26482','2693','26930','2648','1150','11500')  --New charges of contempt
+--				ORDER BY
+--					CountIncidentDt DESC
+--			) AS contempt
+--				CROSS APPLY
+--			(
+--				SELECT TOP 1
+--					CountID
+--					,CountIncidentDt
+--				FROM
+--					jw50_Count
+--				WHERE
+--					CaseID = c.CaseID
+--					AND CountID != contempt.CountID --pulling all cases where the count IDs aren't contempt
+--				ORDER BY
+--					CountIncidentDt ASC
+--			) AS cc
+--		WHERE
+--			contempt.CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End) --contempt cases added in the date range
+--			AND DATEDIFF(DAY,cc.CountIncidentDt,contempt.CountIncidentDt) >= 14 --contempt charges were added 14 days after non contempt charges were added
+--			AND c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
+--			AND ca.CaseAgencyMasterCode = 2 --Courts
+--			AND ca.CaseAgencyNumber IS NOT NULL
+			
+--		--EXCEPT
+				
+--		--SELECT DISTINCT
+--		--	c.CaseID
+--		--	,[Rule] = '4' 
+--		--	,[Heading] = 'Contempt Cases' 
+--		--FROM
+--		--	Case_CTE AS c
+--		--		INNER JOIN
+--		--	RuleOne_CTE AS r
+--		--		ON r.CaseID = c.CaseID
+--		--		AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+--	)
 		
-		UNION ALL
----------------------------------------------------------------------------------------------------------------------Rule 5
-		SELECT DISTINCT
-			c.CaseID
-			,[Rule] = '5' 
-			,[Heading] = 'Probation Violation Cases' 
-		FROM
-			Case_CTE AS c
-				INNER JOIN
-			CaseAgency_CTE AS ca
-					ON ca.CaseID = c.CaseID
-				INNER JOIN
-			jw50_Count AS pv
-					ON pv.CaseID = c.CaseID
-					AND pv.StatuteChargeID IN ('26680','26800','26910','26911','26912') --new charges of probation violation, conditional discharge violation and pretrial deiversion violation
-					AND pv.CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End)
-		WHERE
-			c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
-			AND ca.CaseAgencyMasterCode = 2 --Courts
-			AND ca.CaseAgencyNumber IS NOT NULL
+--		UNION ALL
+-----------------------------------------------------------------------------------------------------------------------Rule 5
+--	(
+--		SELECT DISTINCT
+--			c.CaseID
+--			,[Rule] = '5' 
+--			,[Heading] = 'Probation Violation Cases'
+--		FROM
+--			Case_CTE AS c
+--				INNER JOIN
+--			CaseAgency_CTE AS ca
+--					ON ca.CaseID = c.CaseID
+--				CROSS APPLY
+--			(
+--				SELECT TOP 1
+--					CountID
+--					,CountIncidentDt
+--				FROM
+--					jw50_Count
+--				WHERE
+--					CaseID = c.CaseID
+--					AND StatuteChargeID IN ('26680','26800','26910','26911','26912')
+--					AND CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+--				ORDER BY
+--					CountIncidentDt DESC
+--			) AS contempt
+--				CROSS APPLY
+--			(
+--				SELECT TOP 1
+--					CountID
+--					,CountIncidentDt
+--				FROM
+--					jw50_Count
+--				WHERE
+--					CaseID = c.CaseID
+--					AND CountID != contempt.CountID --pulling all cases where the count IDs aren't contempt
+--				ORDER BY
+--					CountIncidentDt ASC
+--			) AS cc
+--		WHERE
+--			c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
+--			AND ca.CaseAgencyMasterCode = 2 --Courts
+--			AND ca.CaseAgencyNumber IS NOT NULL
+--			AND DATEDIFF(DAY,cc.CountIncidentDt,contempt.CountIncidentDt) >= 14
+			
+--		--EXCEPT
+				
+--		--SELECT DISTINCT
+--		--	c.CaseID
+--		--	,[Rule] = '5' 
+--		--	,[Heading] = 'Probation Violation Cases'
+--		--FROM
+--		--	Case_CTE AS c
+--		--		INNER JOIN
+--		--	RuleOne_CTE AS r
+--		--		ON r.CaseID = c.CaseID
+--		--		AND r.RuleOneDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+--	)
 		
-		UNION ALL
----------------------------------------------------------------------------------------------------------------------Rule 6
-		SELECT
-			c6.CaseID
-			,[Rule] = '6' 
-			,[Heading] = 'Revocation Cases' 
-		FROM
-			Case_CTE AS c6
-				LEFT JOIN
-			CaseAgency_CTE AS ca
-					ON ca.CaseID = c6.CaseID
-					AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
-		WHERE
-			c6.CaseTypeCode = 'CTREV' --Revocation cases
-			AND NOT EXISTS (
-								SELECT TOP 1 
-									ca2.CaseAgencyNumber 
-								FROM 
-									CaseAgency_CTE AS ca2
-								WHERE 
-									ca2.CaseID = c6.CaseID
-									AND ca2.CaseAgencyMasterCode = 2 --Court
-									AND ca2.CaseAgencyNumber IS NOT NULL
-							)
+--		UNION ALL
+-----------------------------------------------------------------------------------------------------------------------Rule 6
+--		SELECT
+--			c6.CaseID
+--			,[Rule] = '6' 
+--			,[Heading] = 'Revocation Cases' 
+--		FROM
+--			Case_CTE AS c6
+--				LEFT JOIN
+--			CaseAgency_CTE AS ca
+--					ON ca.CaseID = c6.CaseID
+--					AND ca.CaseAgencyAddDt BETWEEN @Start AND DATEADD(DAY,1,@End)
+--		WHERE
+--			c6.CaseTypeCode = 'CTREV' --Revocation cases
+--			AND NOT EXISTS (
+--								SELECT TOP 1 
+--									ca2.CaseAgencyNumber 
+--								FROM 
+--									CaseAgency_CTE AS ca2
+--								WHERE 
+--									ca2.CaseID = c6.CaseID
+--									AND ca2.CaseAgencyMasterCode = 2 --Court
+--									AND ca2.CaseAgencyNumber IS NOT NULL
+--							)
 	) AS temp)
 
 SELECT DISTINCT
 	c.CaseID
-	,OfficeCaseCount = COUNT(CourtNum) OVER (PARTITION BY Office)
-	,CaseCountTotal = COUNT(CourtNum) OVER (PARTITION BY [Static])
+	--,OfficeCaseCount = COUNT(c.[Rule]) OVER (PARTITION BY Office)
+	--,CaseCountTotal = COUNT(c.[Rule]) OVER (PARTITION BY [Static])
 	,m.Office
 	,m.OfficeCode
 	,c.[Rule]
@@ -675,7 +707,7 @@ OfficeList_CTE AS o
 WHERE
 	--m.OfficeCode IN (@OfficeCode)
 	OfficeCode IN (SELECT VALUE FROM @OfficeCode)
-	AND m.CaseStatusCode NOT IN ('CS10','CS20')
-	--and c.CaseID IN ('14-14','14-15')
+	--AND m.CaseStatusCode NOT IN ('CS10','CS20')
+	--and c.CaseID IN ('13-624359   ')
 ORDER BY
 	CaseID
