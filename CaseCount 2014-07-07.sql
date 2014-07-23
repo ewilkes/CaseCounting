@@ -16,7 +16,9 @@ INSERT INTO @OfficeCode VALUES ('BOYCT')	--Boyd County Office
 --INSERT INTO @OfficeCode VALUES ('COTOU')	--Covington Office
 --INSERT INTO @OfficeCode VALUES ('CYTOU')	--Cynthiana Office
 --INSERT INTO @OfficeCode VALUES ('DATOU')	--Danville Office
+--INSERT INTO @OfficeCode VALUES ('DIOTS')	--Trial Divison
 --INSERT INTO @OfficeCode VALUES ('DPANW')	--Newport Office
+--INSERT INTO @OfficeCode VALUES ('EARTB')	--Eastern Region
 --INSERT INTO @OfficeCode VALUES ('ELITO')	--Elizabethtown Office
 --INSERT INTO @OfficeCode VALUES ('FRATO')	--Frankfort Trial Office
 --INSERT INTO @OfficeCode VALUES ('GLCTO')	--Glasgow Office
@@ -40,6 +42,7 @@ INSERT INTO @OfficeCode VALUES ('BOYCT')	--Boyd County Office
 --INSERT INTO @OfficeCode VALUES ('RITRO')	--Richmond Office
 --INSERT INTO @OfficeCode VALUES ('SOTOU')	--Somerset Office
 --INSERT INTO @OfficeCode VALUES ('STANT')	--Stanton Office
+
 ;
 --CTEs to cut down on unneccessary fields
 WITH Case_CTE AS
@@ -183,7 +186,6 @@ WITH Case_CTE AS
 )
 ,Main_CTE AS
 (
-	
 	SELECT
 		c.CaseID
 		,c.CaseTypeCode
@@ -331,7 +333,7 @@ WITH Case_CTE AS
 					jw50_Event AS e3
 				WHERE
 					e3.CaseID = c.CaseID
-					AND e3.EventTypeCode IN ('CS03','CS04','CS09','CS11','CSA14') --Added additional code
+					AND e3.EventTypeCode IN ('CS03','CS04','CS09','CS11','CSA14','CS13','CS16') --Added additional code
 					AND e3.EventID = courte.EventID
 				ORDER BY
 					e3.EventDt DESC
@@ -370,6 +372,7 @@ WITH Case_CTE AS
 			(				--How is it ensured that the charges were entered after the case was re-opened?
 				SELECT
 					EventTypeCode
+					,EventDt
 				FROM
 					jw50_Event
 				WHERE
@@ -380,6 +383,7 @@ WITH Case_CTE AS
 			(
 				SELECT
 					EventID
+					,EventDt
 				FROM
 					jw50_Event
 				WHERE
@@ -396,12 +400,13 @@ WITH Case_CTE AS
 					jw50_Count
 				WHERE
 					CaseID = c.CaseID
-					AND StatuteChargeID IN ('26480','26581','26482','2693','26930','2648','1150','11500')  --New charges of contempt
+					AND StatuteChargeID IN ('26480','26481','26482','2693','26930','2648','1150','11500')  --New charges of contempt
 			) AS contempt
 				CROSS APPLY
 			(
 				SELECT
 					CountID
+					,CountIncidentDt
 				FROM
 					jw50_Count
 				WHERE
@@ -410,6 +415,7 @@ WITH Case_CTE AS
 			) AS cc
 		WHERE
 			contempt.CountIncidentDt BETWEEN @Start AND DATEADD(DAY,1,@End) --contempt cases added in the date range
+			AND DATEADD(DAY,14,contempt.CountIncidentDt) > cc.CountIncidentDt --contempt charges were added 14 days after non contempt charges were added
 			AND c.CaseTypeCode IN ('CT16','CTCE','CTDMV','CTFEL','CTJUV','CTJVA','CTMIS','CTOTH','CTPPR','CTREV','CTWRT') --Trial Court Cases
 			AND ca.CaseAgencyMasterCode = 2 --Courts
 			AND ca.CaseAgencyNumber IS NOT NULL
@@ -484,7 +490,7 @@ SELECT DISTINCT
 	,m.County
 	,m.Court
 	,m.CourtNum
-	,Judge = j.Attorney
+	,Judge = j.Judge
 	,m.NumAttyOffice
 	,o.NumAttyOfficeTotal
 	,MostSevereCharge = ISNULL(s.StatuteClassDesc,'No Statute') 
@@ -496,22 +502,43 @@ FROM
 			ON c.CaseID = m.CaseID
 	OUTER APPLY
 (
-	SELECT
-		aty.CaseID
-		,AttorneyID = aty.CaseInvPersNameID
-		,Attorney = aty.CaseInvPersFullName
-		,aty.CaseInvPersActive
+	SELECT TOP 1
+		jud.CaseID
+		,JudgeID = jud.CaseInvPersNameID
+		,Judge = jud.CaseInvPersFullName
+		,jud.CaseInvPersActive
 	FROM
-		CaseInvPers_CTE AS aty
+		CaseInvPers_CTE AS jud
 	WHERE
-		aty.CaseAgencyID = m.CourtID
-		AND aty.InvolveTypeCode = 'CIT03'
+		jud.CaseAgencyID = m.CourtID
+		AND jud.InvolveTypeCode = 'CIT03'
 		AND 1 = CASE
-					WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
-					WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
-					WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
-					WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
-					WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+					WHEN c.[Rule] = 1 THEN --most recent judge, active status does not matter
+										1
+					WHEN c.[Rule] = 2 THEN --probably no judge
+										1
+					WHEN c.[Rule] = 3 THEN --most recent judge, active status does not matter
+										1
+					WHEN c.[Rule] = 4 THEN --most recent active judge whose court is lead
+										CASE
+											WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+											WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
+											WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+											WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
+											WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+											ELSE 0
+										END
+					WHEN c.[Rule] = 5 THEN --most recent active judge whose court is lead
+										CASE
+											WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+											WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
+											WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+											WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
+											WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+											ELSE 0
+										END
+					WHEN c.[Rule] = 6 THEN --probably no judge
+										1
 					ELSE 0
 				END
 ) AS j
@@ -577,7 +604,7 @@ FROM
 		) AS jcheck
 	WHERE
 		aty.CaseID = c.CaseID
-		AND aty.InvolveTypeCode IN ('CIT06','CIT19')
+		AND aty.InvolveTypeCode IN ('CIT06','CIT19','CONTR','CIT22')
 		AND (--jcheck.CaseAgencyNameID = m.CaseAgencyNameID OR 
 		aty.CaseInvPersNameID = atc.CaseInvPersNameID)
 		AND 1 = CASE 
@@ -596,9 +623,48 @@ FROM
 												ELSE 1
 											END
 					WHEN c.[Rule] = 2 THEN 1
-					WHEN c.[Rule] = 3 THEN 1
-					WHEN c.[Rule] = 4 THEN 1
-					WHEN c.[Rule] = 5 THEN 1
+					WHEN c.[Rule] = 3 THEN CASE
+												WHEN atc.NumOfAtty > 1 THEN
+																			CASE
+																				--WHEN jcheck.CaseInvPersNameID IS NOT NULL
+																				
+																				WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+																				WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
+																				WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+																				WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
+																				WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+																				ELSE 0
+																			END
+												ELSE 1
+											END
+					WHEN c.[Rule] = 4 THEN CASE
+												WHEN atc.NumOfAtty > 1 THEN
+																			CASE
+																				--WHEN jcheck.CaseInvPersNameID IS NOT NULL
+																				
+																				WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+																				WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
+																				WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+																				WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
+																				WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+																				ELSE 0
+																			END
+												ELSE 1
+											END
+					WHEN c.[Rule] = 5 THEN CASE
+												WHEN atc.NumOfAtty > 1 THEN
+																			CASE
+																				--WHEN jcheck.CaseInvPersNameID IS NOT NULL
+																				
+																				WHEN @Start BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+																				WHEN CaseInvPersActiveDt >= @Start AND CaseInvPersInactiveDt <= @End THEN 1
+																				WHEN @End BETWEEN CaseInvPersActiveDt AND CaseInvPersInactiveDt THEN 1
+																				WHEN CaseInvPersActiveDt <= @Start AND CaseInvPersInactiveDt >=@End THEN 1
+																				WHEN CaseInvPersActive = 1 AND CaseInvPersActiveDt <= @End THEN 1
+																				ELSE 0
+																			END
+												ELSE 1
+											END
 					WHEN c.[Rule] = 6 THEN 1
 				END
 											
@@ -610,6 +676,6 @@ WHERE
 	--m.OfficeCode IN (@OfficeCode)
 	OfficeCode IN (SELECT VALUE FROM @OfficeCode)
 	AND m.CaseStatusCode NOT IN ('CS10','CS20')
-	and c.CaseID IN ('14-14','14-15')
+	--and c.CaseID IN ('14-14','14-15')
 ORDER BY
 	CaseID
